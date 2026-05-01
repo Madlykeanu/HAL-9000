@@ -1,0 +1,25 @@
+# Build outputs
+bin/
+obj/
+
+# Staged compiled plugin artifacts
+GameData/HAL-9000/Plugins/*.dll
+GameData/HAL-9000/Plugins/*.pdb
+GameData/HAL-9000/Plugins/*.mdb
+
+# Local secrets and machine-specific config
+GameData/HAL-9000/PluginData/settings.cfg
+*.csproj.user
+*.sln.user
+*.user
+*.suo
+
+# Editor and OS noise
+.vs/
+.vscode/
+.idea/
+*.tmp
+*.bak
+*.log
+Thumbs.db
+Desktop.ini

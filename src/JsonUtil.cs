@@ -15,6 +15,19 @@ namespace HAL9000
             return builder.ToString();
         }
 
+        public static string PrettyPrint(string json)
+        {
+            object value = Deserialize(json);
+            if (value == null)
+            {
+                return json;
+            }
+
+            StringBuilder builder = new StringBuilder();
+            WritePrettyValue(builder, value, 0);
+            return builder.ToString();
+        }
+
         public static object Deserialize(string json)
         {
             if (json == null)
@@ -130,6 +143,116 @@ namespace HAL9000
             }
 
             builder.Append('"').Append(Escape(value.ToString())).Append('"');
+        }
+
+        private static void WritePrettyValue(StringBuilder builder, object value, int indent)
+        {
+            if (value == null)
+            {
+                builder.Append("null");
+                return;
+            }
+
+            string text = value as string;
+            if (text != null)
+            {
+                builder.Append('"').Append(Escape(text)).Append('"');
+                return;
+            }
+
+            if (value is bool)
+            {
+                builder.Append((bool)value ? "true" : "false");
+                return;
+            }
+
+            if (value is int || value is long || value is float || value is double || value is decimal)
+            {
+                builder.Append(Convert.ToString(value, CultureInfo.InvariantCulture));
+                return;
+            }
+
+            IDictionary dictionary = value as IDictionary;
+            if (dictionary != null)
+            {
+                WritePrettyDictionary(builder, dictionary, indent);
+                return;
+            }
+
+            IEnumerable enumerable = value as IEnumerable;
+            if (enumerable != null)
+            {
+                WritePrettyArray(builder, enumerable, indent);
+                return;
+            }
+
+            builder.Append('"').Append(Escape(value.ToString())).Append('"');
+        }
+
+        private static void WritePrettyDictionary(StringBuilder builder, IDictionary dictionary, int indent)
+        {
+            if (dictionary.Count == 0)
+            {
+                builder.Append("{}");
+                return;
+            }
+
+            bool first = true;
+            builder.Append('{');
+            foreach (DictionaryEntry entry in dictionary)
+            {
+                if (!first)
+                {
+                    builder.Append(',');
+                }
+
+                builder.AppendLine();
+                AppendIndent(builder, indent + 1);
+                builder.Append('"').Append(Escape(Convert.ToString(entry.Key, CultureInfo.InvariantCulture))).Append("\": ");
+                WritePrettyValue(builder, entry.Value, indent + 1);
+                first = false;
+            }
+
+            builder.AppendLine();
+            AppendIndent(builder, indent);
+            builder.Append('}');
+        }
+
+        private static void WritePrettyArray(StringBuilder builder, IEnumerable enumerable, int indent)
+        {
+            List<object> items = new List<object>();
+            foreach (object item in enumerable)
+            {
+                items.Add(item);
+            }
+
+            if (items.Count == 0)
+            {
+                builder.Append("[]");
+                return;
+            }
+
+            builder.Append('[');
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (i > 0)
+                {
+                    builder.Append(',');
+                }
+
+                builder.AppendLine();
+                AppendIndent(builder, indent + 1);
+                WritePrettyValue(builder, items[i], indent + 1);
+            }
+
+            builder.AppendLine();
+            AppendIndent(builder, indent);
+            builder.Append(']');
+        }
+
+        private static void AppendIndent(StringBuilder builder, int indent)
+        {
+            builder.Append(' ', indent * 2);
         }
 
         private sealed class Parser

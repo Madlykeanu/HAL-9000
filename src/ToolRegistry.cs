@@ -104,6 +104,95 @@ namespace HAL9000
                             }
                         }
                     },
+                    new string[0]),
+                CreateTool(
+                    "get_orbit_info",
+                    "Returns detailed active-vessel orbit, surface, patched-conic transition, and maneuver-reference-frame information.",
+                    new Dictionary<string, object>(),
+                    new string[0]),
+                CreateTool(
+                    "get_target_info",
+                    "Returns active target information including distance, relative velocity, target orbit, relative inclination, and closest approach when available.",
+                    new Dictionary<string, object>(),
+                    new string[0]),
+                CreateTool(
+                    "get_maneuver_nodes",
+                    "Returns all active maneuver nodes with UT, prograde/normal/radial components, total delta-v, and resulting patched-conic summaries.",
+                    new Dictionary<string, object>(),
+                    new string[0]),
+                CreateTool(
+                    "get_engine_status",
+                    "Returns active-vessel engine status, thrust, ISP, propellants, flameout/ignition state, and acceleration estimates.",
+                    new Dictionary<string, object>(),
+                    new string[0]),
+                CreateTool(
+                    "estimate_burn",
+                    "Estimates burn duration and delta-v feasibility for a requested delta-v using stock vessel delta-v data and current engine status.",
+                    new Dictionary<string, object>
+                    {
+                        {
+                            "delta_v_mps",
+                            new Dictionary<string, object>
+                            {
+                                { "type", "number" },
+                                { "description", "Requested burn delta-v in meters per second. If omitted, the next maneuver node delta-v is used when available." }
+                            }
+                        }
+                    },
+                    new string[0]),
+                CreateTool(
+                    "get_reference_frames",
+                    "Returns the active-vessel prograde, radial-plus, and normal-plus basis vectors at a specified UT or now.",
+                    new Dictionary<string, object>
+                    {
+                        {
+                            "ut",
+                            new Dictionary<string, object>
+                            {
+                                { "type", "number" },
+                                { "description", "Universal time for the requested reference frame. Defaults to current UT." }
+                            }
+                        }
+                    },
+                    new string[0]),
+                CreateTool(
+                    "simulate_maneuver",
+                    "Returns a read-only rough two-body estimate of the orbit produced by a maneuver-vector input. It does not create or edit a KSP maneuver node.",
+                    new Dictionary<string, object>
+                    {
+                        {
+                            "ut",
+                            new Dictionary<string, object>
+                            {
+                                { "type", "number" },
+                                { "description", "Universal time of the simulated burn. Defaults to current UT." }
+                            }
+                        },
+                        {
+                            "prograde_mps",
+                            new Dictionary<string, object>
+                            {
+                                { "type", "number" },
+                                { "description", "Prograde delta-v in meters per second." }
+                            }
+                        },
+                        {
+                            "normal_mps",
+                            new Dictionary<string, object>
+                            {
+                                { "type", "number" },
+                                { "description", "Normal-plus delta-v in meters per second." }
+                            }
+                        },
+                        {
+                            "radial_mps",
+                            new Dictionary<string, object>
+                            {
+                                { "type", "number" },
+                                { "description", "Radial-plus delta-v in meters per second." }
+                            }
+                        }
+                    },
                     new string[0])
             };
         }

@@ -16,7 +16,14 @@ namespace HAL9000
             "get_celestial_info",
             "list_celestial_bodies",
             "list_vessel_parts",
-            "get_part_info"
+            "get_part_info",
+            "get_orbit_info",
+            "get_target_info",
+            "get_maneuver_nodes",
+            "get_engine_status",
+            "estimate_burn",
+            "get_reference_frames",
+            "simulate_maneuver"
         };
 
         private HAL9000Config config;
@@ -265,6 +272,41 @@ namespace HAL9000
                     return PartInfoTool.GetPartInfoJson(request.Arguments);
                 }
 
+                if (request.Name == "get_orbit_info")
+                {
+                    return NavigationInfoTool.GetOrbitInfoJson();
+                }
+
+                if (request.Name == "get_target_info")
+                {
+                    return NavigationInfoTool.GetTargetInfoJson();
+                }
+
+                if (request.Name == "get_maneuver_nodes")
+                {
+                    return NavigationInfoTool.GetManeuverNodesJson();
+                }
+
+                if (request.Name == "get_engine_status")
+                {
+                    return NavigationInfoTool.GetEngineStatusJson();
+                }
+
+                if (request.Name == "estimate_burn")
+                {
+                    return NavigationInfoTool.EstimateBurnJson(request.Arguments);
+                }
+
+                if (request.Name == "get_reference_frames")
+                {
+                    return NavigationInfoTool.GetReferenceFramesJson(request.Arguments);
+                }
+
+                if (request.Name == "simulate_maneuver")
+                {
+                    return NavigationInfoTool.SimulateManeuverJson(request.Arguments);
+                }
+
                 return "{\"error\":\"Unknown tool: " + JsonUtil.Escape(request.Name) + "\"}";
             }
             catch (Exception ex)
@@ -292,7 +334,8 @@ namespace HAL9000
             }
 
             ToolCallRequest request = new ToolCallRequest(selectedDebugTool, arguments);
-            debugOutput = ExecuteTool(request);
+            string rawOutput = ExecuteTool(request);
+            debugOutput = JsonUtil.PrettyPrint(rawOutput);
             debugOutputScroll = Vector2.zero;
         }
 
@@ -333,6 +376,21 @@ namespace HAL9000
             if (toolName == "get_part_info")
             {
                 return "{\"part_index\":0}";
+            }
+
+            if (toolName == "estimate_burn")
+            {
+                return "{\"delta_v_mps\":100}";
+            }
+
+            if (toolName == "get_reference_frames")
+            {
+                return "{}";
+            }
+
+            if (toolName == "simulate_maneuver")
+            {
+                return "{\"prograde_mps\":100,\"normal_mps\":0,\"radial_mps\":0}";
             }
 
             return "{}";

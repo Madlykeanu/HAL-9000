@@ -11,6 +11,21 @@ namespace HAL9000
     public sealed class HAL9000Addon : MonoBehaviour
     {
         private const int WindowId = 900001;
+        private static readonly string[] GeminiVoices =
+        {
+            "Achernar", "Achird", "Algenib", "Algieba", "Alnilam", "Aoede", "Autonoe", "Callirrhoe", "Charon", "Despina",
+            "Enceladus", "Erinome", "Fenrir", "Gacrux", "Iapetus", "Kore", "Laomedeia", "Leda", "Orus", "Puck",
+            "Pulcherrima", "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Sulafat", "Umbriel", "Vindemiatrix", "Zephyr", "Zubenelgenubi"
+        };
+        private static readonly string[] OpenAiTtsVoices =
+        {
+            "alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse", "marin", "cedar"
+        };
+        private static readonly TtsModelOption[] TtsModelOptions =
+        {
+            new TtsModelOption("Gemini Flash TTS", "google/gemini-3.1-flash-tts-preview", GeminiVoices, "Iapetus", "pcm", 24000),
+            new TtsModelOption("GPT-4o Mini TTS", "openai/gpt-4o-mini-tts-2025-12-15", OpenAiTtsVoices, "cedar", "pcm", 24000)
+        };
         private readonly List<ChatLine> transcript = new List<ChatLine>();
         private readonly string[] debugToolNames =
         {
@@ -39,6 +54,7 @@ namespace HAL9000
         private AudioSource advancedTtsAudioSource;
         private Rect windowRect = new Rect(180f, 90f, 560f, 520f);
         private Vector2 scroll;
+        private Vector2 settingsScroll;
         private Vector2 debugOutputScroll;
         private Vector2 debugArgsScroll;
         private string input = string.Empty;
@@ -60,6 +76,7 @@ namespace HAL9000
             recorder = new MicrophoneVoiceRecorder(config.VoiceSampleRate, config.VoiceMaxSeconds);
             tts = new VoiceHelperClient();
             advancedTtsEnabled = IsAdvancedTtsMode(config.TextToSpeechMode);
+            EnsureTtsSelectionValid();
             advancedTtsAudioSource = gameObject.AddComponent<AudioSource>();
             advancedTtsAudioSource.spatialBlend = 0f;
             advancedTtsAudioSource.playOnAwake = false;
@@ -110,15 +127,19 @@ namespace HAL9000
             GUILayout.BeginVertical();
 
             GUILayout.Label("Model: " + config.Model);
-            selectedTab = GUILayout.Toolbar(selectedTab, new[] { "Chat", "Tools" });
+            selectedTab = GUILayout.Toolbar(selectedTab, new[] { "Chat", "Tools", "Settings" });
 
             if (selectedTab == 0)
             {
                 DrawChatPanel();
             }
-            else
+            else if (selectedTab == 1)
             {
                 DrawDebugPanel();
+            }
+            else
+            {
+                DrawSettingsPanel();
             }
 
             GUILayout.EndVertical();
@@ -141,7 +162,6 @@ namespace HAL9000
             GUILayout.Label("Status: " + status);
             GUILayout.Label("Voice: " + VoiceStatusText());
             GUILayout.Label("Personality: Humor " + config.HumorPercent + "%, Honesty " + config.HonestyPercent + "%");
-            DrawTtsControls();
 
             GUI.SetNextControlName("HALInput");
             input = GUILayout.TextField(input, GUILayout.MinHeight(26f));
@@ -233,6 +253,71 @@ namespace HAL9000
             {
                 visible = false;
             }
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawSettingsPanel()
+        {
+            settingsScroll = GUILayout.BeginScrollView(settingsScroll, GUILayout.Height(420f));
+
+            GUILayout.Label("Voice Output");
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Mode: " + (advancedTtsEnabled ? "Advanced OpenRouter" : "Windows"), GUILayout.Width(210f));
+            string buttonText = advancedTtsEnabled ? "Use Windows TTS" : "Use Advanced TTS";
+            if (GUILayout.Button(buttonText, GUILayout.Width(150f)))
+            {
+                advancedTtsEnabled = !advancedTtsEnabled;
+                AddVoiceDebugLine("TTS mode switched to " + (advancedTtsEnabled ? "Advanced OpenRouter." : "Windows."));
+            }
+
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(8f);
+            GUILayout.Label("Advanced TTS Model");
+            int selectedModel = SelectedTtsModelIndex();
+            string[] modelLabels = TtsModelLabels();
+            int nextModel = GUILayout.SelectionGrid(selectedModel, modelLabels, 1);
+            if (nextModel != selectedModel && nextModel >= 0 && nextModel < TtsModelOptions.Length)
+            {
+                ApplyTtsModelOption(TtsModelOptions[nextModel]);
+            }
+
+            GUILayout.Space(8f);
+            GUILayout.Label("Voice: " + config.TextToSpeechVoice);
+            TtsModelOption current = CurrentTtsModelOption();
+            int selectedVoice = IndexOf(current.Voices, config.TextToSpeechVoice);
+            int nextVoice = GUILayout.SelectionGrid(Math.Max(0, selectedVoice), current.Voices, 3);
+            if (nextVoice >= 0 && nextVoice < current.Voices.Length && current.Voices[nextVoice] != config.TextToSpeechVoice)
+            {
+                config.TextToSpeechVoice = current.Voices[nextVoice];
+                AddVoiceDebugLine("Advanced TTS voice switched to " + config.TextToSpeechVoice + ".");
+            }
+
+            GUILayout.Space(8f);
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Volume: " + Math.Round(config.TextToSpeechVolume * 100f) + "%", GUILayout.Width(210f));
+            config.TextToSpeechVolume = GUILayout.HorizontalSlider(config.TextToSpeechVolume, 0f, 3f, GUILayout.Width(220f));
+            GUILayout.EndHorizontal();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Speed: " + config.TextToSpeechSpeed.ToString("0.00") + "x", GUILayout.Width(210f));
+            config.TextToSpeechSpeed = GUILayout.HorizontalSlider(config.TextToSpeechSpeed, 0.25f, 4f, GUILayout.Width(220f));
+            GUILayout.EndHorizontal();
+
+            GUILayout.Space(8f);
+            GUILayout.Label("Request: " + config.TextToSpeechModel);
+            GUILayout.Label("Format: " + config.TextToSpeechResponseFormat + ", PCM sample rate: " + config.TextToSpeechPcmSampleRate + " Hz");
+            GUILayout.Label("These settings apply immediately for this KSP session.");
+
+            GUILayout.EndScrollView();
+
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("Close", GUILayout.Width(80f)))
+            {
+                visible = false;
+            }
+
             GUILayout.EndHorizontal();
         }
 
@@ -419,33 +504,6 @@ namespace HAL9000
             SendText(transcriptText);
         }
 
-        private void DrawTtsControls()
-        {
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("TTS: " + (advancedTtsEnabled ? "Advanced OpenRouter" : "Windows"), GUILayout.Width(210f));
-            string buttonText = advancedTtsEnabled ? "Use Windows TTS" : "Use Advanced TTS";
-            if (GUILayout.Button(buttonText, GUILayout.Width(150f)))
-            {
-                advancedTtsEnabled = !advancedTtsEnabled;
-                AddVoiceDebugLine("TTS mode switched to " + (advancedTtsEnabled ? "Advanced OpenRouter." : "Windows."));
-            }
-
-            GUILayout.EndHorizontal();
-
-            if (advancedTtsEnabled)
-            {
-                GUILayout.BeginHorizontal();
-                GUILayout.Label("Advanced volume: " + Math.Round(config.TextToSpeechVolume * 100f) + "%", GUILayout.Width(210f));
-                config.TextToSpeechVolume = GUILayout.HorizontalSlider(config.TextToSpeechVolume, 0f, 3f, GUILayout.Width(150f));
-                GUILayout.EndHorizontal();
-
-                GUILayout.BeginHorizontal();
-                GUILayout.Label("Advanced speed: " + config.TextToSpeechSpeed.ToString("0.00") + "x", GUILayout.Width(210f));
-                config.TextToSpeechSpeed = GUILayout.HorizontalSlider(config.TextToSpeechSpeed, 0.25f, 4f, GUILayout.Width(150f));
-                GUILayout.EndHorizontal();
-            }
-        }
-
         private void AddVoiceDebugLine(string message)
         {
             if (string.IsNullOrEmpty(message))
@@ -618,6 +676,75 @@ namespace HAL9000
         {
             return string.Equals(mode, "advanced", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(mode, "openrouter", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void EnsureTtsSelectionValid()
+        {
+            TtsModelOption option = CurrentTtsModelOption();
+            config.TextToSpeechModel = option.ModelId;
+            config.TextToSpeechResponseFormat = option.ResponseFormat;
+            config.TextToSpeechPcmSampleRate = option.PcmSampleRate;
+            if (IndexOf(option.Voices, config.TextToSpeechVoice) < 0)
+            {
+                config.TextToSpeechVoice = option.DefaultVoice;
+            }
+        }
+
+        private TtsModelOption CurrentTtsModelOption()
+        {
+            int index = SelectedTtsModelIndex();
+            return index >= 0 ? TtsModelOptions[index] : TtsModelOptions[0];
+        }
+
+        private int SelectedTtsModelIndex()
+        {
+            for (int i = 0; i < TtsModelOptions.Length; i++)
+            {
+                if (string.Equals(TtsModelOptions[i].ModelId, config.TextToSpeechModel, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+
+            return 0;
+        }
+
+        private static string[] TtsModelLabels()
+        {
+            string[] labels = new string[TtsModelOptions.Length];
+            for (int i = 0; i < TtsModelOptions.Length; i++)
+            {
+                labels[i] = TtsModelOptions[i].DisplayName;
+            }
+
+            return labels;
+        }
+
+        private void ApplyTtsModelOption(TtsModelOption option)
+        {
+            config.TextToSpeechModel = option.ModelId;
+            config.TextToSpeechVoice = option.DefaultVoice;
+            config.TextToSpeechResponseFormat = option.ResponseFormat;
+            config.TextToSpeechPcmSampleRate = option.PcmSampleRate;
+            AddVoiceDebugLine("Advanced TTS model switched to " + option.DisplayName + " voice " + option.DefaultVoice + ".");
+        }
+
+        private static int IndexOf(string[] values, string value)
+        {
+            if (values == null || value == null)
+            {
+                return -1;
+            }
+
+            for (int i = 0; i < values.Length; i++)
+            {
+                if (string.Equals(values[i], value, StringComparison.OrdinalIgnoreCase))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
         }
 
         private string ExecuteTool(ToolCallRequest request)
@@ -865,6 +992,26 @@ namespace HAL9000
             }
 
             return int.TryParse(value.ToString(), out result);
+        }
+
+        private sealed class TtsModelOption
+        {
+            public readonly string DisplayName;
+            public readonly string ModelId;
+            public readonly string[] Voices;
+            public readonly string DefaultVoice;
+            public readonly string ResponseFormat;
+            public readonly int PcmSampleRate;
+
+            public TtsModelOption(string displayName, string modelId, string[] voices, string defaultVoice, string responseFormat, int pcmSampleRate)
+            {
+                DisplayName = displayName;
+                ModelId = modelId;
+                Voices = voices;
+                DefaultVoice = defaultVoice;
+                ResponseFormat = responseFormat;
+                PcmSampleRate = pcmSampleRate;
+            }
         }
     }
 }

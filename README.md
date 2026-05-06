@@ -68,7 +68,7 @@ Voice output is implemented by the helper executable staged at:
 GameData\HAL-9000\Voice\HAL9000VoiceHelper.exe
 ```
 
-By default, HAL uses free local Windows TTS for responses. Use the in-game `Use Advanced TTS` button to switch to OpenRouter TTS at runtime, or set the default in `settings.cfg`:
+By default, HAL uses free local Windows TTS for responses. Use the in-game `Settings` tab to switch to OpenRouter TTS at runtime, select a supported TTS model, select a model-valid voice, and adjust volume or speed. You can also set defaults in `settings.cfg`:
 
 ```text
 VOICE_TTS_MODE = windows
@@ -80,7 +80,14 @@ OPENROUTER_TTS_SPEED = 1
 OPENROUTER_TTS_VOLUME = 1.8
 ```
 
-Set `VOICE_TTS_MODE = openrouter` or `advanced` to start in advanced TTS mode. Advanced TTS may sound better, but it adds one more network request per answer and is billed by input characters. When advanced mode is active, the chat window shows volume and speed sliders. Some TTS providers ignore `OPENROUTER_TTS_SPEED`; OpenRouter accepts the field, but provider support varies.
+Set `VOICE_TTS_MODE = openrouter` or `advanced` to start in advanced TTS mode. Advanced TTS may sound better, but it adds one more network request per answer and is billed by input characters. The Settings tab shows volume and speed sliders. Some TTS providers ignore `OPENROUTER_TTS_SPEED`; OpenRouter accepts the field, but provider support varies.
+
+The in-game selector currently exposes:
+
+- `google/gemini-3.1-flash-tts-preview` with Gemini voices such as `Iapetus`, `Charon`, `Puck`, `Kore`, `Zephyr`, and the other Gemini voice names listed by Google.
+- `openai/gpt-4o-mini-tts-2025-12-15` with OpenAI voices `alloy`, `ash`, `ballad`, `coral`, `echo`, `fable`, `onyx`, `nova`, `sage`, `shimmer`, `verse`, `marin`, and `cedar`.
+
+Changing the model in the Settings tab also changes the voice list and response format to a compatible preset.
 
 If no microphone is available to Unity, the chat UI will show voice as unavailable. Voice and TTS diagnostics are written to the KSP log with the `[HAL-9000] Voice:` prefix.
 

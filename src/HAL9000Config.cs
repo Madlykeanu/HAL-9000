@@ -9,9 +9,19 @@ namespace HAL9000
         public string ApiKey = string.Empty;
         public string Model = "openai/gpt-4o-mini";
         public string BaseUrl = "https://openrouter.ai/api/v1/chat/completions";
+        public string SpeechToTextModel = "google/chirp-3";
+        public string SpeechToTextBaseUrl = "https://openrouter.ai/api/v1/audio/transcriptions";
+        public string TextToSpeechMode = "windows";
+        public string TextToSpeechModel = "openai/gpt-4o-mini-tts-2025-12-15";
+        public string TextToSpeechBaseUrl = "https://openrouter.ai/api/v1/audio/speech";
+        public string TextToSpeechVoice = "nova";
+        public string TextToSpeechResponseFormat = "mp3";
+        public float TextToSpeechSpeed = 1f;
         public string HttpReferer = "https://github.com/local-ksp-hal-9000";
         public string AppTitle = "KSP HAL-9000";
         public int TimeoutSeconds = 45;
+        public int VoiceSampleRate = 16000;
+        public int VoiceMaxSeconds = 20;
 
         public bool HasApiKey
         {
@@ -31,6 +41,13 @@ namespace HAL9000
             config.ApiKey = Get(values, "OPENROUTER_API_KEY", config.ApiKey);
             config.Model = Get(values, "OPENROUTER_MODEL", config.Model);
             config.BaseUrl = Get(values, "OPENROUTER_BASE_URL", config.BaseUrl);
+            config.SpeechToTextModel = Get(values, "OPENROUTER_STT_MODEL", config.SpeechToTextModel);
+            config.SpeechToTextBaseUrl = Get(values, "OPENROUTER_STT_BASE_URL", config.SpeechToTextBaseUrl);
+            config.TextToSpeechMode = Get(values, "VOICE_TTS_MODE", config.TextToSpeechMode);
+            config.TextToSpeechModel = Get(values, "OPENROUTER_TTS_MODEL", config.TextToSpeechModel);
+            config.TextToSpeechBaseUrl = Get(values, "OPENROUTER_TTS_BASE_URL", config.TextToSpeechBaseUrl);
+            config.TextToSpeechVoice = Get(values, "OPENROUTER_TTS_VOICE", config.TextToSpeechVoice);
+            config.TextToSpeechResponseFormat = Get(values, "OPENROUTER_TTS_FORMAT", config.TextToSpeechResponseFormat);
             config.HttpReferer = Get(values, "OPENROUTER_HTTP_REFERER", config.HttpReferer);
             config.AppTitle = Get(values, "OPENROUTER_APP_TITLE", config.AppTitle);
 
@@ -38,6 +55,24 @@ namespace HAL9000
             if (int.TryParse(Get(values, "REQUEST_TIMEOUT_SECONDS", config.TimeoutSeconds.ToString()), out timeout))
             {
                 config.TimeoutSeconds = Math.Max(5, timeout);
+            }
+
+            int voiceSampleRate;
+            if (int.TryParse(Get(values, "VOICE_SAMPLE_RATE", config.VoiceSampleRate.ToString()), out voiceSampleRate))
+            {
+                config.VoiceSampleRate = Math.Max(8000, voiceSampleRate);
+            }
+
+            int voiceMaxSeconds;
+            if (int.TryParse(Get(values, "VOICE_MAX_SECONDS", config.VoiceMaxSeconds.ToString()), out voiceMaxSeconds))
+            {
+                config.VoiceMaxSeconds = Math.Max(2, voiceMaxSeconds);
+            }
+
+            float ttsSpeed;
+            if (float.TryParse(Get(values, "OPENROUTER_TTS_SPEED", config.TextToSpeechSpeed.ToString()), out ttsSpeed))
+            {
+                config.TextToSpeechSpeed = Math.Max(0.25f, Math.Min(4f, ttsSpeed));
             }
 
             return config;

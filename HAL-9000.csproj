@@ -17,6 +17,9 @@
     <KSPBT_InstallCKANDependencies>false</KSPBT_InstallCKANDependencies>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="voice-helper\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <KSPVersionFile Include="$(MSBuildProjectDirectory)/GameData/HAL-9000/HAL-9000.version">
       <Destination>$(MSBuildProjectDirectory)/GameData/HAL-9000/HAL-9000.version</Destination>
       <KSP_Version_Min>1.12.3</KSP_Version_Min>
@@ -24,5 +27,12 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="KSPBuildTools" Version="1.1.1" />
+    <ProjectReference Include="voice-helper\HAL9000VoiceHelper.csproj" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
+  <Target Name="CopyVoiceHelper" AfterTargets="Build">
+    <MakeDir Directories="$(MSBuildProjectDirectory)\GameData\HAL-9000\Voice" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\voice-helper\bin\$(Configuration)\HAL9000VoiceHelper.exe"
+          DestinationFolder="$(MSBuildProjectDirectory)\GameData\HAL-9000\Voice"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>

@@ -1,7 +1,9 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
+using UnityEngine.Networking;
 
 namespace HAL9000
 {
@@ -9,7 +11,9 @@ namespace HAL9000
     public sealed class HAL9000Addon : MonoBehaviour
     {
         private const int WindowId = 900001;
+        private const int MaxVoiceDebugLines = 8;
         private readonly List<ChatLine> transcript = new List<ChatLine>();
+        private readonly List<string> voiceDebugLines = new List<string>();
         private readonly string[] debugToolNames =
         {
             "get_ship_info",
@@ -28,6 +32,11 @@ namespace HAL9000
 
         private HAL9000Config config;
         private OpenRouterClient client;
+        private OpenRouterSpeechToTextClient speechToText;
+        private OpenRouterTextToSpeechClient textToSpeech;
+        private MicrophoneVoiceRecorder recorder;
+        private VoiceHelperClient tts;
+        private AudioSource advancedTtsAudioSource;
         private Rect windowRect = new Rect(180f, 90f, 560f, 520f);
         private Vector2 scroll;
         private Vector2 debugOutputScroll;
@@ -39,12 +48,19 @@ namespace HAL9000
         private string selectedDebugTool = "get_ship_info";
         private bool visible = true;
         private bool pending;
+        private bool advancedTtsEnabled;
         private int selectedTab;
 
         public void Awake()
         {
             config = HAL9000Config.Load();
             client = new OpenRouterClient(config);
+            speechToText = new OpenRouterSpeechToTextClient(config);
+            textToSpeech = new OpenRouterTextToSpeechClient(config);
+            recorder = new MicrophoneVoiceRecorder(config.VoiceSampleRate, config.VoiceMaxSeconds);
+            tts = new VoiceHelperClient();
+            advancedTtsEnabled = IsAdvancedTtsMode(config.TextToSpeechMode);
+            advancedTtsAudioSource = gameObject.AddComponent<AudioSource>();
             transcript.Add(new ChatLine("assistant", "HAL-9000 flight terminal online. Ask me about the active vessel."));
 
             if (!config.HasApiKey)
@@ -58,6 +74,17 @@ namespace HAL9000
             if (Input.GetKeyDown(KeyCode.F8))
             {
                 visible = !visible;
+            }
+
+            UpdateVoiceInput();
+        }
+
+        public void OnDestroy()
+        {
+            if (tts != null)
+            {
+                tts.Dispose();
+                tts = null;
             }
         }
 
@@ -98,7 +125,7 @@ namespace HAL9000
 
         private void DrawChatPanel()
         {
-            scroll = GUILayout.BeginScrollView(scroll, GUILayout.Height(350f));
+            scroll = GUILayout.BeginScrollView(scroll, GUILayout.Height(275f));
             for (int i = 0; i < transcript.Count; i++)
             {
                 ChatLine line = transcript[i];
@@ -110,6 +137,9 @@ namespace HAL9000
 
             GUILayout.Space(4f);
             GUILayout.Label("Status: " + status);
+            GUILayout.Label("Voice: " + VoiceStatusText());
+            DrawTtsControls();
+            DrawVoiceDebug();
 
             GUI.SetNextControlName("HALInput");
             input = GUILayout.TextField(input, GUILayout.MinHeight(26f));
@@ -213,6 +243,17 @@ namespace HAL9000
             }
 
             input = string.Empty;
+            SendText(message);
+        }
+
+        private void SendText(string message)
+        {
+            message = message == null ? string.Empty : message.Trim();
+            if (message.Length == 0 || pending)
+            {
+                return;
+            }
+
             transcript.Add(new ChatLine("user", message));
             scroll.y = float.MaxValue;
             StartCoroutine(SendToAi());
@@ -235,12 +276,287 @@ namespace HAL9000
             }
             else
             {
-                transcript.Add(new ChatLine("assistant", string.IsNullOrEmpty(answer) ? "No response text returned." : answer));
+                string response = string.IsNullOrEmpty(answer) ? "No response text returned." : answer;
+                transcript.Add(new ChatLine("assistant", response));
+                SpeakResponse(response);
+
                 status = "Idle";
             }
 
             pending = false;
             scroll.y = float.MaxValue;
+        }
+
+        private void UpdateVoiceInput()
+        {
+            string voiceError;
+            while (tts != null && tts.TryGetError(out voiceError))
+            {
+                status = voiceError;
+                AddVoiceDebugLine("Error: " + voiceError);
+            }
+
+            string voiceLog;
+            while (tts != null && tts.TryGetLog(out voiceLog))
+            {
+                AddVoiceDebugLine(voiceLog);
+            }
+
+            if (!pending && !transcribingVoice && config.HasApiKey)
+            {
+                if (Input.GetKeyDown(KeyCode.RightAlt))
+                {
+                    BeginVoiceRecording();
+                }
+
+                if (Input.GetKeyUp(KeyCode.RightAlt))
+                {
+                    EndVoiceRecording();
+                }
+            }
+
+            if (recorder != null && recorder.IsRecording && recorder.CurrentDurationSeconds() >= config.VoiceMaxSeconds - 0.1f)
+            {
+                AddVoiceDebugLine("Maximum voice recording length reached.");
+                EndVoiceRecording();
+            }
+        }
+
+        private string VoiceStatusText()
+        {
+            if (recorder == null || !recorder.HasMicrophone)
+            {
+                return "No microphone available";
+            }
+
+            if (recorder.IsRecording)
+            {
+                return "Recording while Right Alt is held";
+            }
+
+            if (transcribingVoice)
+            {
+                return "Transcribing with " + config.SpeechToTextModel;
+            }
+
+            return "Hold Right Alt to talk";
+        }
+
+        private bool transcribingVoice;
+
+        private void BeginVoiceRecording()
+        {
+            if (recorder == null)
+            {
+                status = "Voice recorder unavailable.";
+                AddVoiceDebugLine(status);
+                return;
+            }
+
+            string error;
+            if (!recorder.Begin(out error))
+            {
+                status = error;
+                AddVoiceDebugLine("Recording failed: " + error);
+                return;
+            }
+
+            status = "Recording voice...";
+            AddVoiceDebugLine("Recording started from " + recorder.InputDescription + ".");
+        }
+
+        private void EndVoiceRecording()
+        {
+            if (recorder == null || !recorder.IsRecording)
+            {
+                return;
+            }
+
+            byte[] wavBytes;
+            float durationSeconds;
+            string error;
+            if (!recorder.End(out wavBytes, out durationSeconds, out error))
+            {
+                status = error;
+                AddVoiceDebugLine("Recording failed: " + error);
+                return;
+            }
+
+            AddVoiceDebugLine("Recording stopped: " + durationSeconds.ToString("0.00") + "s, " + wavBytes.Length + " WAV bytes.");
+            StartCoroutine(TranscribeVoice(wavBytes, durationSeconds));
+        }
+
+        private IEnumerator TranscribeVoice(byte[] wavBytes, float durationSeconds)
+        {
+            transcribingVoice = true;
+            status = "Transcribing voice...";
+            AddVoiceDebugLine("Sending " + durationSeconds.ToString("0.00") + "s WAV to OpenRouter STT model " + config.SpeechToTextModel + ".");
+
+            string transcriptText = null;
+            string error = null;
+            yield return StartCoroutine(speechToText.Transcribe(wavBytes, value => transcriptText = value, value => error = value));
+
+            transcribingVoice = false;
+
+            if (!string.IsNullOrEmpty(error))
+            {
+                status = "Voice transcription failed.";
+                AddVoiceDebugLine("STT failed: " + error);
+                yield break;
+            }
+
+            if (string.IsNullOrEmpty(transcriptText))
+            {
+                status = "No speech transcribed.";
+                AddVoiceDebugLine(status);
+                yield break;
+            }
+
+            status = "Heard: " + transcriptText;
+            AddVoiceDebugLine("STT text: " + transcriptText);
+            SendText(transcriptText);
+        }
+
+        private void DrawVoiceDebug()
+        {
+            GUILayout.Label("Voice debug:");
+            GUILayout.BeginVertical("box", GUILayout.Height(82f));
+            if (voiceDebugLines.Count == 0)
+            {
+                GUILayout.Label("No voice events yet.");
+            }
+            else
+            {
+                for (int i = 0; i < voiceDebugLines.Count; i++)
+                {
+                    GUILayout.Label(voiceDebugLines[i]);
+                }
+            }
+
+            GUILayout.EndVertical();
+        }
+
+        private void DrawTtsControls()
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("TTS: " + (advancedTtsEnabled ? "Advanced OpenRouter" : "Windows"), GUILayout.Width(210f));
+            string buttonText = advancedTtsEnabled ? "Use Windows TTS" : "Use Advanced TTS";
+            if (GUILayout.Button(buttonText, GUILayout.Width(150f)))
+            {
+                advancedTtsEnabled = !advancedTtsEnabled;
+                AddVoiceDebugLine("TTS mode switched to " + (advancedTtsEnabled ? "Advanced OpenRouter." : "Windows."));
+            }
+
+            GUILayout.EndHorizontal();
+        }
+
+        private void AddVoiceDebugLine(string message)
+        {
+            if (string.IsNullOrEmpty(message))
+            {
+                return;
+            }
+
+            string line = DateTime.Now.ToString("HH:mm:ss") + " " + message;
+            voiceDebugLines.Add(line);
+            while (voiceDebugLines.Count > MaxVoiceDebugLines)
+            {
+                voiceDebugLines.RemoveAt(0);
+            }
+
+            Debug.Log("[HAL-9000] Voice debug: " + message);
+        }
+
+        private void SpeakResponse(string response)
+        {
+            if (string.IsNullOrEmpty(response))
+            {
+                return;
+            }
+
+            if (advancedTtsEnabled)
+            {
+                StartCoroutine(SpeakWithOpenRouter(response));
+                return;
+            }
+
+            if (tts != null)
+            {
+                tts.Speak(response);
+            }
+        }
+
+        private IEnumerator SpeakWithOpenRouter(string response)
+        {
+            if (!config.HasApiKey)
+            {
+                AddVoiceDebugLine("Advanced TTS skipped: OpenRouter API key is missing.");
+                yield break;
+            }
+
+            if (config.TextToSpeechResponseFormat != "mp3")
+            {
+                AddVoiceDebugLine("Advanced TTS playback currently requires mp3 response format.");
+                yield break;
+            }
+
+            AddVoiceDebugLine("Requesting OpenRouter TTS model " + config.TextToSpeechModel + " voice " + config.TextToSpeechVoice + ".");
+
+            byte[] audioBytes = null;
+            string error = null;
+            yield return StartCoroutine(textToSpeech.CreateSpeech(response, value => audioBytes = value, value => error = value));
+
+            if (!string.IsNullOrEmpty(error))
+            {
+                AddVoiceDebugLine("Advanced TTS failed: " + error);
+                if (tts != null)
+                {
+                    AddVoiceDebugLine("Falling back to Windows TTS.");
+                    tts.Speak(response);
+                }
+
+                yield break;
+            }
+
+            string path = Path.Combine(Application.temporaryCachePath, "HAL9000-tts.mp3");
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                File.WriteAllBytes(path, audioBytes);
+            }
+            catch (Exception ex)
+            {
+                AddVoiceDebugLine("Advanced TTS file write failed: " + ex.Message);
+                yield break;
+            }
+
+            string uri = "file:///" + path.Replace("\\", "/");
+            UnityWebRequest request = UnityWebRequestMultimedia.GetAudioClip(uri, AudioType.MPEG);
+            yield return request.SendWebRequest();
+
+            if (request.isNetworkError || request.isHttpError)
+            {
+                AddVoiceDebugLine("Advanced TTS audio load failed: " + request.error);
+                yield break;
+            }
+
+            AudioClip clip = DownloadHandlerAudioClip.GetContent(request);
+            if (clip == null)
+            {
+                AddVoiceDebugLine("Advanced TTS audio load returned no clip.");
+                yield break;
+            }
+
+            advancedTtsAudioSource.Stop();
+            advancedTtsAudioSource.clip = clip;
+            advancedTtsAudioSource.Play();
+            AddVoiceDebugLine("Advanced TTS playing " + audioBytes.Length + " MP3 bytes.");
+        }
+
+        private static bool IsAdvancedTtsMode(string mode)
+        {
+            return string.Equals(mode, "advanced", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(mode, "openrouter", StringComparison.OrdinalIgnoreCase);
         }
 
         private string ExecuteTool(ToolCallRequest request)

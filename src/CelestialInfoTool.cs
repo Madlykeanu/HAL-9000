@@ -92,21 +92,25 @@ namespace HAL9000
             Vessel vessel = FlightGlobals.ActiveVessel;
             if (vessel != null)
             {
-                Vector3d vesselPosition = vessel.GetWorldPos3D();
-                Vector3d bodyPosition = body.position;
+                double now = Planetarium.GetUniversalTime();
+                Vector3d vesselPosition = KspDistanceUtil.VesselPositionAtUT(vessel, now);
+                Vector3d bodyPosition = KspDistanceUtil.BodyPositionAtUT(body, now);
                 double centerDistance = Vector3d.Distance(vesselPosition, bodyPosition);
 
                 Dictionary<string, object> vesselRelation = new Dictionary<string, object>();
-                vesselRelation["distance_to_body_center_m"] = CleanNumber(centerDistance);
-                vesselRelation["distance_to_body_surface_m"] = CleanNumber(Math.Max(0.0, centerDistance - body.Radius));
+                KspDistanceUtil.AddDistanceFields(vesselRelation, "distance_to_body_center", centerDistance);
+                KspDistanceUtil.AddDistanceFields(vesselRelation, "distance_to_body_surface", Math.Max(0.0, centerDistance - body.Radius));
                 vesselRelation["active_vessel_body"] = vessel.mainBody == null ? null : vessel.mainBody.bodyName;
 
                 if (vessel.mainBody != null)
                 {
-                    double bodyToBodyCenterDistance = Vector3d.Distance(vessel.mainBody.position, bodyPosition);
-                    vesselRelation["current_body_center_to_body_center_m"] = CleanNumber(bodyToBodyCenterDistance);
-                    vesselRelation["current_body_surface_to_body_surface_m"] =
-                        CleanNumber(Math.Max(0.0, bodyToBodyCenterDistance - vessel.mainBody.Radius - body.Radius));
+                    Vector3d mainBodyPosition = KspDistanceUtil.BodyPositionAtUT(vessel.mainBody, now);
+                    double bodyToBodyCenterDistance = Vector3d.Distance(mainBodyPosition, bodyPosition);
+                    KspDistanceUtil.AddDistanceFields(vesselRelation, "current_body_center_to_body_center", bodyToBodyCenterDistance);
+                    KspDistanceUtil.AddDistanceFields(
+                        vesselRelation,
+                        "current_body_surface_to_body_surface",
+                        Math.Max(0.0, bodyToBodyCenterDistance - vessel.mainBody.Radius - body.Radius));
                 }
 
                 info["active_vessel_relation"] = vesselRelation;

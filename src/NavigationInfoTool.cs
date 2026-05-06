@@ -62,11 +62,13 @@ namespace HAL9000
                 info["target_body_radius_m"] = CleanNumber(targetBody.Radius);
             }
 
-            Vector3d vesselPosition = vessel.GetWorldPos3D();
+            Vector3d vesselPosition = targetBody == null
+                ? vessel.GetWorldPos3D()
+                : KspDistanceUtil.VesselPositionAtUT(vessel, now);
             Vector3d targetPosition = TargetWorldPosition(target, now);
-            if (targetPosition != Vector3d.zero)
+            if (targetBody != null || targetPosition != Vector3d.zero)
             {
-                info["distance_m"] = CleanNumber(Vector3d.Distance(vesselPosition, targetPosition));
+                KspDistanceUtil.AddDistanceFields(info, "distance", Vector3d.Distance(vesselPosition, targetPosition));
             }
 
             Vector3d targetVelocity = TargetWorldVelocity(target, targetOrbit, now);
@@ -512,7 +514,7 @@ namespace HAL9000
             CelestialBody body = target as CelestialBody;
             if (body != null)
             {
-                return body.position;
+                return KspDistanceUtil.BodyPositionAtUT(body, ut);
             }
 
             object position = InvokeMethod(target, "GetTransform");

@@ -12,16 +12,20 @@ namespace HAL9000
         public string SpeechToTextModel = "google/chirp-3";
         public string SpeechToTextBaseUrl = "https://openrouter.ai/api/v1/audio/transcriptions";
         public string TextToSpeechMode = "windows";
-        public string TextToSpeechModel = "openai/gpt-4o-mini-tts-2025-12-15";
+        public string TextToSpeechModel = "google/gemini-3.1-flash-tts-preview";
         public string TextToSpeechBaseUrl = "https://openrouter.ai/api/v1/audio/speech";
-        public string TextToSpeechVoice = "nova";
-        public string TextToSpeechResponseFormat = "mp3";
+        public string TextToSpeechVoice = "Iapetus";
+        public string TextToSpeechResponseFormat = "pcm";
         public float TextToSpeechSpeed = 1f;
+        public float TextToSpeechVolume = 1.8f;
+        public int TextToSpeechPcmSampleRate = 24000;
         public string HttpReferer = "https://github.com/local-ksp-hal-9000";
         public string AppTitle = "KSP HAL-9000";
         public int TimeoutSeconds = 45;
         public int VoiceSampleRate = 16000;
         public int VoiceMaxSeconds = 20;
+        public int HumorPercent = 15;
+        public int HonestyPercent = 90;
 
         public bool HasApiKey
         {
@@ -51,6 +55,18 @@ namespace HAL9000
             config.HttpReferer = Get(values, "OPENROUTER_HTTP_REFERER", config.HttpReferer);
             config.AppTitle = Get(values, "OPENROUTER_APP_TITLE", config.AppTitle);
 
+            int humorPercent;
+            if (int.TryParse(Get(values, "HAL_HUMOR_PERCENT", config.HumorPercent.ToString()), out humorPercent))
+            {
+                config.HumorPercent = ClampPercent(humorPercent);
+            }
+
+            int honestyPercent;
+            if (int.TryParse(Get(values, "HAL_HONESTY_PERCENT", config.HonestyPercent.ToString()), out honestyPercent))
+            {
+                config.HonestyPercent = ClampPercent(honestyPercent);
+            }
+
             int timeout;
             if (int.TryParse(Get(values, "REQUEST_TIMEOUT_SECONDS", config.TimeoutSeconds.ToString()), out timeout))
             {
@@ -69,10 +85,22 @@ namespace HAL9000
                 config.VoiceMaxSeconds = Math.Max(2, voiceMaxSeconds);
             }
 
+            int ttsPcmSampleRate;
+            if (int.TryParse(Get(values, "OPENROUTER_TTS_PCM_SAMPLE_RATE", config.TextToSpeechPcmSampleRate.ToString()), out ttsPcmSampleRate))
+            {
+                config.TextToSpeechPcmSampleRate = Math.Max(8000, ttsPcmSampleRate);
+            }
+
             float ttsSpeed;
             if (float.TryParse(Get(values, "OPENROUTER_TTS_SPEED", config.TextToSpeechSpeed.ToString()), out ttsSpeed))
             {
                 config.TextToSpeechSpeed = Math.Max(0.25f, Math.Min(4f, ttsSpeed));
+            }
+
+            float ttsVolume;
+            if (float.TryParse(Get(values, "OPENROUTER_TTS_VOLUME", config.TextToSpeechVolume.ToString()), out ttsVolume))
+            {
+                config.TextToSpeechVolume = Math.Max(0f, Math.Min(3f, ttsVolume));
             }
 
             return config;
@@ -113,6 +141,11 @@ namespace HAL9000
             }
 
             return value;
+        }
+
+        public static int ClampPercent(int value)
+        {
+            return Math.Max(0, Math.Min(100, value));
         }
     }
 }

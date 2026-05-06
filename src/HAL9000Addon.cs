@@ -11,12 +11,12 @@ namespace HAL9000
     public sealed class HAL9000Addon : MonoBehaviour
     {
         private const int WindowId = 900001;
-        private const int MaxVoiceDebugLines = 8;
         private readonly List<ChatLine> transcript = new List<ChatLine>();
-        private readonly List<string> voiceDebugLines = new List<string>();
         private readonly string[] debugToolNames =
         {
             "get_ship_info",
+            "get_hal_personality",
+            "set_hal_personality",
             "get_celestial_info",
             "list_celestial_bodies",
             "list_vessel_parts",
@@ -61,6 +61,8 @@ namespace HAL9000
             tts = new VoiceHelperClient();
             advancedTtsEnabled = IsAdvancedTtsMode(config.TextToSpeechMode);
             advancedTtsAudioSource = gameObject.AddComponent<AudioSource>();
+            advancedTtsAudioSource.spatialBlend = 0f;
+            advancedTtsAudioSource.playOnAwake = false;
             transcript.Add(new ChatLine("assistant", "HAL-9000 flight terminal online. Ask me about the active vessel."));
 
             if (!config.HasApiKey)
@@ -138,8 +140,8 @@ namespace HAL9000
             GUILayout.Space(4f);
             GUILayout.Label("Status: " + status);
             GUILayout.Label("Voice: " + VoiceStatusText());
+            GUILayout.Label("Personality: Humor " + config.HumorPercent + "%, Honesty " + config.HonestyPercent + "%");
             DrawTtsControls();
-            DrawVoiceDebug();
 
             GUI.SetNextControlName("HALInput");
             input = GUILayout.TextField(input, GUILayout.MinHeight(26f));
@@ -417,25 +419,6 @@ namespace HAL9000
             SendText(transcriptText);
         }
 
-        private void DrawVoiceDebug()
-        {
-            GUILayout.Label("Voice debug:");
-            GUILayout.BeginVertical("box", GUILayout.Height(82f));
-            if (voiceDebugLines.Count == 0)
-            {
-                GUILayout.Label("No voice events yet.");
-            }
-            else
-            {
-                for (int i = 0; i < voiceDebugLines.Count; i++)
-                {
-                    GUILayout.Label(voiceDebugLines[i]);
-                }
-            }
-
-            GUILayout.EndVertical();
-        }
-
         private void DrawTtsControls()
         {
             GUILayout.BeginHorizontal();
@@ -448,6 +431,19 @@ namespace HAL9000
             }
 
             GUILayout.EndHorizontal();
+
+            if (advancedTtsEnabled)
+            {
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("Advanced volume: " + Math.Round(config.TextToSpeechVolume * 100f) + "%", GUILayout.Width(210f));
+                config.TextToSpeechVolume = GUILayout.HorizontalSlider(config.TextToSpeechVolume, 0f, 3f, GUILayout.Width(150f));
+                GUILayout.EndHorizontal();
+
+                GUILayout.BeginHorizontal();
+                GUILayout.Label("Advanced speed: " + config.TextToSpeechSpeed.ToString("0.00") + "x", GUILayout.Width(210f));
+                config.TextToSpeechSpeed = GUILayout.HorizontalSlider(config.TextToSpeechSpeed, 0.25f, 4f, GUILayout.Width(150f));
+                GUILayout.EndHorizontal();
+            }
         }
 
         private void AddVoiceDebugLine(string message)
@@ -457,14 +453,7 @@ namespace HAL9000
                 return;
             }
 
-            string line = DateTime.Now.ToString("HH:mm:ss") + " " + message;
-            voiceDebugLines.Add(line);
-            while (voiceDebugLines.Count > MaxVoiceDebugLines)
-            {
-                voiceDebugLines.RemoveAt(0);
-            }
-
-            Debug.Log("[HAL-9000] Voice debug: " + message);
+            Debug.Log("[HAL-9000] Voice: " + message);
         }
 
         private void SpeakResponse(string response)
@@ -494,9 +483,9 @@ namespace HAL9000
                 yield break;
             }
 
-            if (config.TextToSpeechResponseFormat != "mp3")
+            if (config.TextToSpeechResponseFormat != "mp3" && config.TextToSpeechResponseFormat != "pcm")
             {
-                AddVoiceDebugLine("Advanced TTS playback currently requires mp3 response format.");
+                AddVoiceDebugLine("Advanced TTS playback currently requires mp3 or pcm response format.");
                 yield break;
             }
 
@@ -518,6 +507,32 @@ namespace HAL9000
                 yield break;
             }
 
+            AudioClip clip = null;
+            if (config.TextToSpeechResponseFormat == "pcm")
+            {
+                clip = CreateClipFromPcm16(audioBytes, config.TextToSpeechPcmSampleRate);
+            }
+            else
+            {
+                yield return StartCoroutine(LoadMp3Clip(audioBytes, value => clip = value));
+            }
+
+            if (clip == null)
+            {
+                AddVoiceDebugLine("Advanced TTS audio conversion returned no clip.");
+                yield break;
+            }
+
+            ApplyAdvancedTtsGain(clip);
+            advancedTtsAudioSource.Stop();
+            advancedTtsAudioSource.volume = Math.Min(1f, Math.Max(0f, config.TextToSpeechVolume));
+            advancedTtsAudioSource.clip = clip;
+            advancedTtsAudioSource.Play();
+            AddVoiceDebugLine("Advanced TTS playing " + audioBytes.Length + " " + config.TextToSpeechResponseFormat + " bytes.");
+        }
+
+        private IEnumerator LoadMp3Clip(byte[] audioBytes, Action<AudioClip> onComplete)
+        {
             string path = Path.Combine(Application.temporaryCachePath, "HAL9000-tts.mp3");
             try
             {
@@ -527,6 +542,7 @@ namespace HAL9000
             catch (Exception ex)
             {
                 AddVoiceDebugLine("Advanced TTS file write failed: " + ex.Message);
+                onComplete(null);
                 yield break;
             }
 
@@ -537,20 +553,65 @@ namespace HAL9000
             if (request.isNetworkError || request.isHttpError)
             {
                 AddVoiceDebugLine("Advanced TTS audio load failed: " + request.error);
+                onComplete(null);
                 yield break;
             }
 
-            AudioClip clip = DownloadHandlerAudioClip.GetContent(request);
+            onComplete(DownloadHandlerAudioClip.GetContent(request));
+        }
+
+        private AudioClip CreateClipFromPcm16(byte[] audioBytes, int sampleRate)
+        {
+            if (audioBytes == null || audioBytes.Length < 2)
+            {
+                return null;
+            }
+
+            int sampleCount = audioBytes.Length / 2;
+            float[] samples = new float[sampleCount];
+            for (int i = 0; i < sampleCount; i++)
+            {
+                int byteIndex = i * 2;
+                short value = (short)(audioBytes[byteIndex] | (audioBytes[byteIndex + 1] << 8));
+                samples[i] = Mathf.Clamp(value / 32768f, -1f, 1f);
+            }
+
+            AudioClip clip = AudioClip.Create("HAL9000-tts-pcm", sampleCount, 1, sampleRate, false);
             if (clip == null)
             {
-                AddVoiceDebugLine("Advanced TTS audio load returned no clip.");
-                yield break;
+                return null;
             }
 
-            advancedTtsAudioSource.Stop();
-            advancedTtsAudioSource.clip = clip;
-            advancedTtsAudioSource.Play();
-            AddVoiceDebugLine("Advanced TTS playing " + audioBytes.Length + " MP3 bytes.");
+            return clip.SetData(samples, 0) ? clip : null;
+        }
+
+        private void ApplyAdvancedTtsGain(AudioClip clip)
+        {
+            if (clip == null || config.TextToSpeechVolume <= 1f)
+            {
+                return;
+            }
+
+            try
+            {
+                float[] samples = new float[clip.samples * clip.channels];
+                if (!clip.GetData(samples, 0))
+                {
+                    return;
+                }
+
+                float gain = config.TextToSpeechVolume;
+                for (int i = 0; i < samples.Length; i++)
+                {
+                    samples[i] = Mathf.Clamp(samples[i] * gain, -1f, 1f);
+                }
+
+                clip.SetData(samples, 0);
+            }
+            catch (Exception ex)
+            {
+                AddVoiceDebugLine("Advanced TTS volume gain failed: " + ex.Message);
+            }
         }
 
         private static bool IsAdvancedTtsMode(string mode)
@@ -566,6 +627,16 @@ namespace HAL9000
                 if (request.Name == "get_ship_info")
                 {
                     return ShipInfoTool.GetShipInfoJson();
+                }
+
+                if (request.Name == "get_hal_personality")
+                {
+                    return GetHalPersonalityJson();
+                }
+
+                if (request.Name == "set_hal_personality")
+                {
+                    return SetHalPersonalityJson(request.Arguments);
                 }
 
                 if (request.Name == "get_celestial_info")
@@ -641,6 +712,44 @@ namespace HAL9000
             debugOutputScroll = Vector2.zero;
         }
 
+        private string GetHalPersonalityJson()
+        {
+            return JsonUtil.Serialize(new Dictionary<string, object>
+            {
+                { "humor_percent", config.HumorPercent },
+                { "honesty_percent", config.HonestyPercent },
+                { "note", "Runtime setting for HAL responses. Honesty changes candor, not factual accuracy." }
+            });
+        }
+
+        private string SetHalPersonalityJson(Dictionary<string, object> arguments)
+        {
+            bool changed = false;
+            int humor;
+            if (TryGetArgumentInt(arguments, "humor_percent", out humor))
+            {
+                config.HumorPercent = HAL9000Config.ClampPercent(humor);
+                changed = true;
+            }
+
+            int honesty;
+            if (TryGetArgumentInt(arguments, "honesty_percent", out honesty))
+            {
+                config.HonestyPercent = HAL9000Config.ClampPercent(honesty);
+                changed = true;
+            }
+
+            Dictionary<string, object> result = new Dictionary<string, object>
+            {
+                { "changed", changed },
+                { "humor_percent", config.HumorPercent },
+                { "honesty_percent", config.HonestyPercent },
+                { "note", "Applied for this KSP session. Set HAL_HUMOR_PERCENT and HAL_HONESTY_PERCENT in settings.cfg to make defaults permanent." }
+            };
+
+            return JsonUtil.Serialize(result);
+        }
+
         private void RunDebugTool()
         {
             Dictionary<string, object> arguments = ParseDebugArguments();
@@ -674,6 +783,11 @@ namespace HAL9000
 
         private static string DefaultDebugArguments(string toolName)
         {
+            if (toolName == "set_hal_personality")
+            {
+                return "{\"humor_percent\":15,\"honesty_percent\":90}";
+            }
+
             if (toolName == "get_celestial_info")
             {
                 return "{\"body_name\":\"Mun\"}";
@@ -710,6 +824,47 @@ namespace HAL9000
             }
 
             return "{}";
+        }
+
+        private static bool TryGetArgumentInt(Dictionary<string, object> arguments, string key, out int result)
+        {
+            result = 0;
+            if (arguments == null)
+            {
+                return false;
+            }
+
+            object value;
+            if (!arguments.TryGetValue(key, out value) || value == null)
+            {
+                return false;
+            }
+
+            if (value is int)
+            {
+                result = (int)value;
+                return true;
+            }
+
+            if (value is long)
+            {
+                result = (int)(long)value;
+                return true;
+            }
+
+            if (value is double)
+            {
+                result = (int)Math.Round((double)value);
+                return true;
+            }
+
+            if (value is float)
+            {
+                result = (int)Math.Round((float)value);
+                return true;
+            }
+
+            return int.TryParse(value.ToString(), out result);
         }
     }
 }

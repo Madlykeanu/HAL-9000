@@ -1,6 +1,6 @@
 # HAL-9000 for Kerbal Space Program
 
-HAL-9000 is a v0.1 in-flight AI terminal for KSP. It provides a text chat window, sends messages to OpenRouter, and exposes one read-only tool, `get_ship_info`, so the model can answer using live vessel data.
+HAL-9000 is a v0.1 in-flight AI terminal for KSP. It provides text and push-to-talk chat, sends messages to OpenRouter, and exposes read-only tools so the model can answer using live vessel, orbit, target, part, and celestial-body data.
 
 The project uses an SDK-style `.csproj` with `KSPBuildTools`, similar to newer KSP mod repos. `dotnet build` resolves the installed KSP assemblies and stages the plugin into the repo's `GameData` folder.
 
@@ -30,6 +30,15 @@ GameData\HAL-9000\PluginData\settings.cfg
 ```
 
 Set `OPENROUTER_API_KEY` before launching KSP. `OPENROUTER_MODEL` can be changed without rebuilding.
+
+Optional personality defaults:
+
+```text
+HAL_HUMOR_PERCENT = 15
+HAL_HONESTY_PERCENT = 90
+```
+
+HAL also exposes TARS-style runtime personality controls. Ask HAL to change its humor or honesty setting, or use the manual tool tab with `set_hal_personality`. Humor changes how much dry wit HAL uses. Honesty changes how directly HAL states uncertainty, limitations, and corrections; it never allows false answers.
 
 ## Test Install
 
@@ -63,23 +72,17 @@ By default, HAL uses free local Windows TTS for responses. Use the in-game `Use 
 
 ```text
 VOICE_TTS_MODE = windows
-OPENROUTER_TTS_MODEL = openai/gpt-4o-mini-tts-2025-12-15
-OPENROUTER_TTS_VOICE = nova
-OPENROUTER_TTS_FORMAT = mp3
+OPENROUTER_TTS_MODEL = google/gemini-3.1-flash-tts-preview
+OPENROUTER_TTS_VOICE = Iapetus
+OPENROUTER_TTS_FORMAT = pcm
+OPENROUTER_TTS_PCM_SAMPLE_RATE = 24000
 OPENROUTER_TTS_SPEED = 1
+OPENROUTER_TTS_VOLUME = 1.8
 ```
 
-Set `VOICE_TTS_MODE = openrouter` or `advanced` to start in advanced TTS mode. Advanced TTS may sound better, but it adds one more network request per answer and is billed by input characters.
+Set `VOICE_TTS_MODE = openrouter` or `advanced` to start in advanced TTS mode. Advanced TTS may sound better, but it adds one more network request per answer and is billed by input characters. When advanced mode is active, the chat window shows volume and speed sliders. Some TTS providers ignore `OPENROUTER_TTS_SPEED`; OpenRouter accepts the field, but provider support varies.
 
-If no microphone is available to Unity, the chat UI will show voice as unavailable.
-
-The chat window includes a `Voice debug` panel. Useful messages include:
-
-- `Recording started from ...` means Unity started capturing microphone audio.
-- `Recording stopped: ... WAV bytes` means audio was captured and encoded.
-- `Sending ... WAV to OpenRouter STT model ...` means transcription has started.
-- `STT text: ...` shows the text returned by OpenRouter.
-- `STT failed: ...` shows the OpenRouter error if transcription failed.
+If no microphone is available to Unity, the chat UI will show voice as unavailable. Voice and TTS diagnostics are written to the KSP log with the `[HAL-9000] Voice:` prefix.
 
 Unity records from its default microphone. To use a Quest 3 microphone, set the Quest 3 mic as the default Windows input device before launching KSP:
 
